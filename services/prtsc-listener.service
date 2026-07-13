@@ -1,0 +1,15 @@
+[Unit]
+Description=Print Screen key listener (kernel input level)
+Documentation=https://github.com/wertarbyte/triggerhappy
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/prtsc-input-listener
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
