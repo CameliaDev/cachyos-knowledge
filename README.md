@@ -11,6 +11,7 @@
 - [Cinnamon Wayland 核心缺陷](#cinnamon-wayland-核心缺陷)
 - [Fcitx5 输入法架构](#fcitx5-输入法架构)
 - [Evdev 级热键方案](#evdev-级热键方案)
+- [截图粘贴修复](#截图粘贴修复)
 - [键盘设备分析](#键盘设备分析)
 - [配置清单](#配置清单)
 - [环境变量速查](#环境变量速查)
@@ -103,6 +104,38 @@ root systemd service → Python evdev (read_loop)
 
 ---
 
+## 截图粘贴修复
+
+### 问题
+
+Cinnamon Wayland 下，flameshot 截图后无法粘贴到微信等 Wayland 应用。粘贴出来的是纯文本或纯红色图片。
+
+### 根本原因
+
+**flameshot 的 `-c` 选项只能复制到 X11 剪贴板**，而 Wayland 应用读取的是 Wayland 剪贴板。两者隔离，导致图片数据丢失。
+
+### 解决方案
+
+修改 `prtsc-screenshot.sh` 脚本：
+1. 移除 flameshot 的 `-c` 选项
+2. 截屏后用 `wl-copy` 手动复制到 Wayland 剪贴板
+
+```bash
+# 关键代码
+flameshot gui -p "$SCREENSHOT_DIR" "$@"  # 不用 -c
+wl-copy -t image/png < "$LATEST_FILE"    # 手动复制到 Wayland 剪贴板
+```
+
+### 验证
+
+```bash
+wl-paste --list-types | grep image/png  # 应显示 image/png
+```
+
+详细文档：`docs/screenshot-clipboard-fix.md`
+
+---
+
 ## 键盘设备分析
 
 USB 无线键鼠接收器暴露了 **5 个 evdev 节点**，但只有一个对应真正的键盘：
@@ -141,6 +174,7 @@ USB 无线键鼠接收器暴露了 **5 个 evdev 节点**，但只有一个对�
 | `~/.config/fcitx5/profile` | 输入法分组：keyboard-us + pinyin |
 | `/usr/local/bin/shift-ime-toggle` | Shift tap 输入法切换守护进程 |
 | `/usr/local/bin/prtsc-input-listener` | Print Screen evdev 监听器 |
+| `~/.local/bin/prtsc-screenshot.sh` | 截图脚本（已修复 Wayland 剪贴板问题） |
 | `/etc/systemd/system/shift-ime-toggle.service` | Shift tap 服务的 systemd unit |
 | `/etc/systemd/system/prtsc-listener.service` | Print Screen 服务的 systemd unit |
 
