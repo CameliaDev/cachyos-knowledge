@@ -21,13 +21,14 @@ GID           = 1000
 SCRIPT        = f"/home/{USER}/.local/bin/prtsc-screenshot.sh"
 DEBOUNCE_SEC  = 1.5
 
-# Listen on event3 (AT Translated Set 2 keyboard — built-in laptop).
-# We intentionally skip event14/event10 (wireless receiver secondary
-# interfaces) because a single key press generates events on both,
-# causing double-trigger.
+# Listen on event14 (Compx 2.4G Wireless Receiver Keyboard).
+# We intentionally skip event10 (same receiver, secondary iface)
+# because a single key press generates events on both, causing
+# double-trigger.  We also skip event5 (mouse) and event3 (built-in
+# AT keyboard — the wireless keyboard is the primary input device).
 DEVICE_PATH = "/dev/input/event3"
 
-# Fallback: if event3 isn't available, try these in order.
+# Fallback: if event14 isn't available, try these in order.
 FALLBACK_PATHS = [
     "/dev/input/event14",
     "/dev/input/event10",
