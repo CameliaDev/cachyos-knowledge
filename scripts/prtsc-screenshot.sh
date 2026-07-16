@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Region screenshot via flameshot: Windows-style selector, saves to folder + clipboard.
-# Triggered by xbindkeys on the Print (PrtSc) key.
-# 修复: flameshot的-c只能复制到X11剪贴板，需要额外用wl-copy复制到Wayland剪贴板
+# Triggered by evdev prtsc-listener service on the Print (PrtSc) key.
+# 同时复制到 Wayland (wl-copy) 和 X11 (xclip) 剪贴板，确保所有应用都能粘贴截图
 
 export DISPLAY="${DISPLAY:-:0}"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
@@ -19,10 +20,14 @@ FLAMESHOT_EXIT=$?
 echo "$(date '+%H:%M:%S') flameshot exit=$FLAMESHOT_EXIT" >> "$LOG"
 
 if [ $FLAMESHOT_EXIT -eq 0 ]; then
-    # 找到刚保存的截图，用wl-copy复制到Wayland剪贴板
+    # 找到刚保存的截图
     LATEST_FILE=$(ls -t "$SCREENSHOT_DIR"/*.png 2>/dev/null | head -1)
     if [ -n "$LATEST_FILE" ]; then
+        # Wayland 剪贴板 (原生 Wayland 应用可用)
         wl-copy -t image/png < "$LATEST_FILE"
         echo "$(date '+%H:%M:%S') wl-copy OK: $LATEST_FILE" >> "$LOG"
+        # X11 剪贴板 (XWayland 应用可用)
+        xclip -selection clipboard -t image/png -i "$LATEST_FILE" 2>/dev/null
+        echo "$(date '+%H:%M:%S') xclip exit=$?" >> "$LOG"
     fi
 fi

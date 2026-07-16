@@ -21,14 +21,13 @@ GID           = 1000
 SCRIPT        = f"/home/{USER}/.local/bin/prtsc-screenshot.sh"
 DEBOUNCE_SEC  = 1.5
 
-# Listen on event14 (Compx 2.4G Wireless Receiver Keyboard).
-# We intentionally skip event10 (same receiver, secondary iface)
-# because a single key press generates events on both, causing
-# double-trigger.  We also skip event5 (mouse) and event3 (built-in
-# AT keyboard — the wireless keyboard is the primary input device).
+# Listen on event3 (AT Translated Set 2 keyboard — built-in laptop).
+# We intentionally skip event14/event10 (wireless receiver secondary
+# interfaces) because a single key press generates events on both,
+# causing double-trigger.
 DEVICE_PATH = "/dev/input/event3"
 
-# Fallback: if event14 isn't available, try these in order.
+# Fallback: if event3 isn't available, try these in order.
 FALLBACK_PATHS = [
     "/dev/input/event14",
     "/dev/input/event10",
@@ -47,15 +46,22 @@ def trigger() -> None:
         return
     last_trigger_time = now
 
-    # Resolve XAUTHORITY: LightDM stores the active session cookie at
-    # /run/lightdm/<user>/xauthority (regenerated each login).  Fall
-    # back to ~/.Xauthority for non-LightDM setups.
-    xauth = f"/run/lightdm/{USER}/xauthority"
-    if not os.path.exists(xauth):
-        xauth = f"/home/{USER}/.Xauthority"
+    # Resolve XAUTHORITY.  Cinnamon Wayland uses muffin-Xwaylandauth
+    # under /run/user/<uid>/; LightDM uses /run/lightdm/<user>/xauthority.
+    # Fall back to ~/.Xauthority only if neither exists.
+    import glob as _glob
+    xauth = f"/home/{USER}/.Xauthority"          # last resort
+    muffin_candidates = _glob.glob(f"/run/user/{UID}/.muffin-Xwaylandauth.*")
+    if muffin_candidates:
+        xauth = muffin_candidates[0]            # Cinnamon Wayland
+    else:
+        lightdm_path = f"/run/lightdm/{USER}/xauthority"
+        if os.path.exists(lightdm_path):
+            xauth = lightdm_path               # LightDM
 
     env = {
         "DISPLAY": ":0",
+        "WAYLAND_DISPLAY": "wayland-0",
         "XAUTHORITY": xauth,
         "HOME": f"/home/{USER}",
         "XDG_RUNTIME_DIR": f"/run/user/{UID}",
