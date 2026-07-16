@@ -3,8 +3,8 @@
 Listen for Print Screen key at the kernel input (evdev) level,
 bypassing X11 keyboard grabs from popup menus.
 
-Only listens on ONE device per physical keyboard to avoid duplicate
-events from USB receivers that expose multiple input event nodes.
+Print        → screenshot (flameshot gui)
+Ctrl+Print   → open screenshot folder
 """
 
 import evdev
@@ -12,55 +12,32 @@ import os
 import subprocess
 import sys
 import time
-from evdev.ecodes import EV_KEY, KEY_SYSRQ
+from evdev.ecodes import EV_KEY, KEY_SYSRQ, KEY_LEFTCTRL, KEY_RIGHTCTRL
 
-# ── configuration ──────────────────────────────────────────────
 USER          = "arch"
 UID           = 1000
 GID           = 1000
 SCRIPT        = f"/home/{USER}/.local/bin/prtsc-screenshot.sh"
+SCREENSHOT_DIR = f"/home/{USER}/图片/截图"
 DEBOUNCE_SEC  = 1.5
-
-# Listen on event14 (Compx 2.4G Wireless Receiver Keyboard).
-# We intentionally skip event10 (same receiver, secondary iface)
-# because a single key press generates events on both, causing
-# double-trigger.  We also skip event5 (mouse) and event3 (built-in
-# AT keyboard — the wireless keyboard is the primary input device).
-DEVICE_PATH = "/dev/input/event3"
-
-# Fallback: if event14 isn't available, try these in order.
-FALLBACK_PATHS = [
-    "/dev/input/event14",
-    "/dev/input/event10",
-]
-# ────────────────────────────────────────────────────────────────
+DEVICE_PATH   = "/dev/input/event3"
+FALLBACK_PATHS = ["/dev/input/event14", "/dev/input/event10"]
 
 last_trigger_time = 0.0
+ctrl_held = False
 
 
-def trigger() -> None:
-    """Run the screenshot script as the desktop user (drop root)."""
-    global last_trigger_time
-
-    now = time.monotonic()
-    if now - last_trigger_time < DEBOUNCE_SEC:
-        return
-    last_trigger_time = now
-
-    # Resolve XAUTHORITY.  Cinnamon Wayland uses muffin-Xwaylandauth
-    # under /run/user/<uid>/; LightDM uses /run/lightdm/<user>/xauthority.
-    # Fall back to ~/.Xauthority only if neither exists.
+def build_env():
     import glob as _glob
-    xauth = f"/home/{USER}/.Xauthority"          # last resort
+    xauth = f"/home/{USER}/.Xauthority"
     muffin_candidates = _glob.glob(f"/run/user/{UID}/.muffin-Xwaylandauth.*")
     if muffin_candidates:
-        xauth = muffin_candidates[0]            # Cinnamon Wayland
+        xauth = muffin_candidates[0]
     else:
         lightdm_path = f"/run/lightdm/{USER}/xauthority"
         if os.path.exists(lightdm_path):
-            xauth = lightdm_path               # LightDM
-
-    env = {
+            xauth = lightdm_path
+    return {
         "DISPLAY": ":0",
         "WAYLAND_DISPLAY": "wayland-0",
         "XAUTHORITY": xauth,
@@ -70,18 +47,37 @@ def trigger() -> None:
         "LANG": "en_US.UTF-8",
         "LC_ALL": "en_US.UTF-8",
     }
+
+
+def run_as_user(cmd):
     try:
-        subprocess.Popen(
-            [SCRIPT],
-            env=env,
-            preexec_fn=lambda: (os.setgid(GID), os.setuid(UID)),
-        )
+        subprocess.Popen(cmd, env=build_env(),
+                         preexec_fn=lambda: (os.setgid(GID), os.setuid(UID)))
     except Exception as exc:
-        print(f"[prtsc-listener] trigger failed: {exc}", file=sys.stderr)
+        print(f"[prtsc-listener] spawn failed: {exc}", file=sys.stderr)
 
 
-def resolve_device() -> str | None:
-    """Return the first available input device with the Print key."""
+def trigger_screenshot():
+    global last_trigger_time
+    now = time.monotonic()
+    if now - last_trigger_time < DEBOUNCE_SEC:
+        return
+    last_trigger_time = now
+    print("[prtsc-listener] SCREENSHOT", file=sys.stderr, flush=True)
+    run_as_user([SCRIPT])
+
+
+def open_folder():
+    global last_trigger_time
+    now = time.monotonic()
+    if now - last_trigger_time < DEBOUNCE_SEC:
+        return
+    last_trigger_time = now
+    print(f"[prtsc-listener] OPEN FOLDER: {SCREENSHOT_DIR}", file=sys.stderr, flush=True)
+    run_as_user(["xdg-open", SCREENSHOT_DIR])
+
+
+def resolve_device():
     candidates = [DEVICE_PATH] + FALLBACK_PATHS
     for path in candidates:
         if os.path.exists(path):
@@ -89,24 +85,30 @@ def resolve_device() -> str | None:
     return None
 
 
-def main() -> None:
+def main():
+    global ctrl_held
     device_path = resolve_device()
     if device_path is None:
-        print("[prtsc-listener] no input device found — exiting", file=sys.stderr)
+        print("[prtsc-listener] no input device found", file=sys.stderr)
         sys.exit(1)
-
-    print(f"[prtsc-listener] listening on {device_path}", file=sys.stderr)
-
+    print(f"[prtsc-listener] listening on {device_path}  "
+          f"(Print=截图  Ctrl+Print=打开文件夹)", file=sys.stderr)
     while True:
         try:
             dev = evdev.InputDevice(device_path)
             for event in dev.read_loop():
-                if event.type == EV_KEY and event.code == KEY_SYSRQ:
-                    if event.value == 1:          # key-down only
-                        trigger()
+                if event.type != EV_KEY:
+                    continue
+                if event.code in (KEY_LEFTCTRL, KEY_RIGHTCTRL):
+                    ctrl_held = (event.value == 1)
+                    continue
+                if event.code == KEY_SYSRQ and event.value == 1:
+                    if ctrl_held:
+                        open_folder()
+                    else:
+                        trigger_screenshot()
         except (OSError, PermissionError) as exc:
-            print(f"[prtsc-listener] {device_path}: {exc} — retrying in 3s",
-                  file=sys.stderr)
+            print(f"[prtsc-listener] {device_path}: {exc} — retrying", file=sys.stderr)
             time.sleep(3)
         except Exception as exc:
             print(f"[prtsc-listener] {device_path}: {exc}", file=sys.stderr)

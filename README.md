@@ -106,30 +106,44 @@ root systemd service → Python evdev (read_loop)
 
 ## 截图粘贴修复
 
-### 问题
+### 问题链（三个独立 bug）
 
-Cinnamon Wayland 下，flameshot 截图后无法粘贴到微信等 Wayland 应用。粘贴出来的是纯文本或纯红色图片。
+**Bug 1 — 双闪：** 按 Print 屏幕闪烁两次。`csd-media-keys` 硬编码 Print → `gnome-screenshot`，与 evdev listener 的 `flameshot gui` 并行触发。禁用 `gnome-screenshot` 解决。
 
-### 根本原因
+**Bug 2 — 粘贴无效：** `prtsc-input-listener` 传给子进程的环境字典缺 `WAYLAND_DISPLAY`，且 `XAUTHORITY` 指向过期 cookie。Cinnamon Wayland 用 `/run/user/1000/.muffin-Xwaylandauth.*`，不是 `~/.Xauthority`。
 
-**flameshot 的 `-c` 选项只能复制到 X11 剪贴板**，而 Wayland 应用读取的是 Wayland 剪贴板。两者隔离，导致图片数据丢失。
+**Bug 3 — Muffin 不缓存剪贴板数据：** `wl-copy` 默认 fork 后退出，muffin 在数据源进程消失后丢掉数据。必须用 `wl-copy -f`（foreground 常驻）。
 
-### 解决方案
+### 最终方案
 
-修改 `prtsc-screenshot.sh` 脚本：
-1. 移除 flameshot 的 `-c` 选项
-2. 截屏后用 `wl-copy` 手动复制到 Wayland 剪贴板
+| 操作 | 效果 |
+|------|------|
+| **Print** | flameshot 选区截图 |
+| **Ctrl+Print** | 打开截图文件夹 `~/图片/截图/` |
+| 剪贴板 | `wl-copy -f` 常驻 + `xclip` X11 双写 |
+| 粘贴到富文本编辑器 | Ctrl+V 直接贴（GitHub、Discord、contenteditable） |
+| 粘贴到普通输入框 | Web 标准限制，不支持图片——从文件夹拖文件 |
 
 ```bash
-# 关键代码
-flameshot gui -p "$SCREENSHOT_DIR" "$@"  # 不用 -c
-wl-copy -t image/png < "$LATEST_FILE"    # 手动复制到 Wayland 剪贴板
+# 关键代码 (prtsc-screenshot.sh)
+flameshot gui -p "$SCREENSHOT_DIR" "$@"
+pkill -f "wl-copy" 2>/dev/null
+wl-copy -f -t image/png < "$LATEST_FILE" &   # 常驻！
+xclip -selection clipboard -t image/png -i "$LATEST_FILE"
+```
+
+### 环境变量必备
+
+```
+# ~/.config/environment.d/fcitx5.conf
+MOZ_ENABLE_WAYLAND=1   # Firefox 原生 Wayland（否则 XWayland 下读不到 wl-copy 数据）
 ```
 
 ### 验证
 
 ```bash
-wl-paste --list-types | grep image/png  # 应显示 image/png
+wl-paste --list-types | grep image/png       # 应显示 image/png
+firefox file:///tmp/paste-test2.html          # 测试页——验证 4 种粘贴场景
 ```
 
 详细文档：`docs/screenshot-clipboard-fix.md`

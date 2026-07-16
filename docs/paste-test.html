@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>剪贴板完整测试</title>
+<style>
+body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:20px;background:#1a1a2e;color:#eee}
+.test{border:2px solid #555;padding:20px;margin:20px 0;border-radius:8px;background:#16213e}
+.test h3{margin-top:0;color:#4fc3f7}
+.test.pass{border-color:#4caf50}
+.test.fail{border-color:#f44336}
+input,textarea,div[contenteditable]{width:100%;padding:10px;margin:10px 0;border:1px solid #666;border-radius:4px;background:#0f0f23;color:#eee;box-sizing:border-box}
+div[contenteditable]{min-height:60px}
+.result{font-size:14px;margin-top:8px;padding:8px;border-radius:4px}
+.result.ok{background:#1b3a1b;color:#81c784}
+.result.info{background:#1a237e;color:#90caf9}
+.result.fail{background:#3a1b1b;color:#ef9a9a}
+img.preview{max-width:300px;max-height:200px;margin:10px 0;border-radius:4px;display:none}
+</style></head><body>
+<h2>剪贴板完整测试</h2>
+<p>先在每个测试区域 Ctrl+V，看结果。剪贴板当前: <span id="clip-status">检查中...</span></p>
+
+<div class="test" id="test1-box">
+<h3>测试 1: JavaScript paste 事件</h3>
+<p>整页监听 paste 事件</p>
+<div id="js-result" class="result info">等待粘贴...</div>
+<img id="js-img" class="preview">
+</div>
+
+<div class="test" id="test2-box">
+<h3>测试 2: contenteditable div（如 GitHub/Discord 编辑器）</h3>
+<div contenteditable="true" id="ce" placeholder="在此 Ctrl+V..."></div>
+<div id="ce-result" class="result info">等待粘贴...</div>
+</div>
+
+<div class="test" id="test3-box">
+<h3>测试 3: &lt;input type=text&gt;</h3>
+<input type="text" id="text-input" placeholder="在此 Ctrl+V...">
+<div class="result info">input 不支持图片粘贴——Web 标准限制</div>
+</div>
+
+<div class="test" id="test4-box">
+<h3>测试 4: &lt;textarea&gt;</h3>
+<textarea id="ta" placeholder="在此 Ctrl+V..."></textarea>
+<div class="result info">textarea 不支持图片粘贴——Web 标准限制</div>
+</div>
+
+<script>
+(async () => {
+    const s = document.getElementById('clip-status');
+    try {
+        const items = await navigator.clipboard.read();
+        let types = [];
+        for (const item of items) types.push(...item.types);
+        s.innerHTML = types.join(', ') || '(空)';
+        if (types.some(t => t.startsWith('image/'))) s.style.color = '#81c784';
+    } catch(e) {
+        s.innerHTML = '无法读取 (' + e.message + ')';
+        s.style.color = '#ef9a9a';
+    }
+})();
+
+document.addEventListener('paste', function(e) {
+    const r = document.getElementById('js-result');
+    const img = document.getElementById('js-img');
+    const items = e.clipboardData?.items;
+    if (!items || items.length === 0) { r.className='result fail'; r.innerHTML='paste 事件触发了但剪贴板为空'; return; }
+    let html = '剪贴板内容:<br>';
+    let has = false;
+    for (let i=0;i<items.length;i++) {
+        html += '&nbsp;&nbsp;'+i+': <code>'+items[i].type+'</code> ('+items[i].kind+')<br>';
+        if (items[i].type.startsWith('image/')) {
+            has=true; const blob=items[i].getAsFile();
+            img.src=URL.createObjectURL(blob); img.style.display='block';
+            document.getElementById('test1-box').classList.add('pass');
+        }
+    }
+    r.className = has ? 'result ok' : 'result fail';
+    r.innerHTML = html + (has ? 'JavaScript paste 成功!' : '有数据但没有 image/* 类型');
+});
+
+document.getElementById('ce').addEventListener('input', function() {
+    const r = document.getElementById('ce-result');
+    const imgs = this.querySelectorAll('img');
+    if (imgs.length>0) { r.className='result ok'; r.innerHTML='contenteditable 接受了图片! ('+imgs.length+'张)'; document.getElementById('test2-box').classList.add('pass'); }
+    else if (this.textContent.trim()) { r.className='result info'; r.innerHTML='只粘贴了文本: '+this.textContent.substring(0,50); }
+    else { r.className='result info'; r.innerHTML='等待粘贴 (contenteditable 接受图片)'; }
+});
+</script>
+</body></html>
